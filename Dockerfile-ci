@@ -1,0 +1,6 @@
+FROM golang:1.16 AS run
+WORKDIR /app
+COPY ./src/entity/migrations /app/src/entity/migrations
+COPY ./main /app/main
+RUN chmod +x /app/main
+CMD ["/app/main"]

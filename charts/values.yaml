@@ -1,0 +1,4 @@
+cloverscan-contract-registry:
+  enabled: true
+  global:
+    image: cloverscan-contract-registry

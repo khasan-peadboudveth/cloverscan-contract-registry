@@ -1,0 +1,212 @@
+version: 2.1
+
+global-variables: &global-variables
+  RANCHER_SERVER_URL: https://rancher.stkr-dev.ankr.com/v3
+  # RANCHER_TOKEN: <in security context>
+  HARBOR_URL: harbor.stkr.io
+  # HARBOR_PASSWORD: <in security context>
+  SERVICE_NAME: cloverscan-contract-registry
+
+build-golang-template: &build-golang-template
+  working_directory: /build
+  docker:
+    - image: golang:1.16
+  steps:
+    - checkout
+    - run:
+        name: "Pull Submodules"
+        command: |
+          git submodule update --init --remote
+    - setup_remote_docker:
+        docker_layer_caching: true
+    - attach_workspace:
+        at: '.'
+    - run:
+        context: clover-develop
+        name: Go Build & Publish
+        environment:
+          <<: *global-variables
+        command: |
+          export GOPRIVATE=github.com/clover-network
+          cd $CONTEXT_PATH
+          go build -o main ./
+          cd ..
+    - persist_to_workspace:
+        root: '.'
+        paths:
+          - '.'
+
+build-gradle-template: &build-gradle-template
+  docker:
+    - image: circleci/openjdk:11-jdk
+  steps:
+    - checkout
+    - run:
+        name: "Pull Submodules"
+        command: |
+          git submodule update --init --remote
+    - setup_remote_docker:
+        docker_layer_caching: true
+    - attach_workspace:
+        at: '.'
+    - run:
+        context: clover-develop
+        name: Go Build & Publish
+        environment:
+          <<: *global-variables
+        command: |
+          chmod +x gradlew
+          ./gradlew bootJar
+          mv $(find build/libs -type f -name "*.jar" |  head -n 1) main.jar
+    - persist_to_workspace:
+        root: '.'
+        paths:
+          - './'
+
+build-docker-template: &build-docker-template
+  working_directory: /build
+  docker:
+    - image: docker:18.06.3-ce-git
+  steps:
+    - checkout
+    - setup_remote_docker:
+        docker_layer_caching: true
+    - attach_workspace:
+        at: '.'
+    - run:
+        context: clover-develop
+        name: Docker Build & Publish
+        environment:
+          <<: *global-variables
+        command: |
+          docker build -t app $CONTEXT_PATH -f ${DOCKER_FILE:-Dockerfile}
+          docker login $HARBOR_URL -u $HARBOR_USERNAME -p $HARBOR_PASSWORD
+          docker tag app $HARBOR_URL/$HARBOR_PROJECT/$SERVICE_NAME:$CIRCLE_SHA1
+          docker push $HARBOR_URL/$HARBOR_PROJECT/$SERVICE_NAME:$CIRCLE_SHA1
+
+deploy-develop-template: &deploy-develop-template
+  docker:
+    - image: nwtsoas/rancher-helm3
+  steps:
+    - checkout
+    - setup_remote_docker
+    - run:
+        context: clover-develop
+        name: Deploy Rancher
+        environment:
+          <<: *global-variables
+        command: |
+          rancher login "$RANCHER_SERVER_URL" --token "$RANCHER_TOKEN" --context "$RANCHER_PROJECT"
+          rancher kubectl config view --raw > /tmp/config && export KUBECONFIG=/tmp/config
+          kubectl create namespace $KUBE_NAMESPACE || true
+          kubectl create secret docker-registry docker-secret --docker-server="$HARBOR_URL" --docker-username="$HARBOR_USERNAME" --docker-password="$HARBOR_PASSWORD" -n $KUBE_NAMESPACE || true
+          kubectl patch serviceaccount default -p '{"imagePullSecrets": [{"name": "docker-secret"}]}' -n $KUBE_NAMESPACE || true
+          kubectl annotate namespace $KUBE_NAMESPACE field.cattle.io/projectId=$RANCHER_PROJECT || true
+          helm dependency update ./charts
+          helm upgrade --install $CHART_NAME --namespace=$KUBE_NAMESPACE \
+              --set global.env=$ENVIRONMENT_NAME \
+              --set global.repository=$HARBOR_URL/$HARBOR_PROJECT \
+              --set global.tag=$CIRCLE_SHA1 \
+              ./charts
+
+deploy-prod-template: &deploy-prod-template
+  docker:
+    - image: nwtsoas/rancher-helm3
+  steps:
+    - checkout
+    - setup_remote_docker
+    - run:
+        context:
+          - clover-develop
+          - cloverscan_prod
+        name: Deploy Rancher
+        environment:
+          <<: *global-variables
+        command: |
+          helm plugin install https://github.com/zendesk/helm-secrets
+          echo -e "$GPG_VALUES_SECRET" | base64 -d | gpg --import
+          echo -e "$GPG_VALUES_PUBLIC" | base64 -d | gpg --import
+          VALUES_FILE=./charts/prod-values.yaml
+          helm secrets dec $VALUES_FILE
+          mv ${VALUES_FILE}.dec $VALUES_FILE
+          rancher login "$RANCHER_SERVER_URL_PROD" --token "$RANCHER_TOKEN_PROD" --context "$RANCHER_PROJECT"
+          rancher kubectl config view --raw > /tmp/config && export KUBECONFIG=/tmp/config
+          kubectl create namespace $KUBE_NAMESPACE || true
+          kubectl create secret docker-registry docker-secret --docker-server="$HARBOR_URL" --docker-username="$HARBOR_USERNAME" --docker-password="$HARBOR_PASSWORD" -n $KUBE_NAMESPACE || true
+          kubectl patch serviceaccount default -p '{"imagePullSecrets": [{"name": "docker-secret"}]}' -n $KUBE_NAMESPACE || true
+          kubectl annotate namespace $KUBE_NAMESPACE field.cattle.io/projectId=$RANCHER_PROJECT || true
+          helm dependency update ./charts
+          helm upgrade --install -f $VALUES_FILE $CHART_NAME --namespace=$KUBE_NAMESPACE \
+              --set global.env=$ENVIRONMENT_NAME \
+              --set global.repository=$HARBOR_URL/$HARBOR_PROJECT \
+              --set global.tag=$CIRCLE_SHA1 \
+              ./charts
+
+jobs:
+  build-golang:
+    environment:
+      CONTEXT_PATH: ./
+    <<: *build-golang-template
+  build-docker:
+    environment:
+      CONTEXT_PATH: ./
+      DOCKER_FILE: ./Dockerfile-ci
+    <<: *build-docker-template
+
+  deploy-develop:
+    environment:
+      <<: *global-variables
+      ENVIRONMENT_NAME: dev
+      KUBE_NAMESPACE: cloverscan-contract-registry-dev
+      RANCHER_PROJECT: c-42n4w:p-kr9zx
+      CHART_NAME: cloverscan-contract-registry
+    <<: *deploy-develop-template
+
+  deploy-prod:
+    environment:
+      <<: *global-variables
+      ENVIRONMENT_NAME: prod
+      CHART_NAME: charts
+      KUBE_NAMESPACE: cloverscan-contract-registry-prod
+    <<: *deploy-prod-template
+
+workflow-build-template: &workflow-build-template
+  context: clover-develop
+  filters:
+    branches:
+      only: [ develop, main ]
+
+workflows:
+  build:
+    jobs:
+      # build workflow
+      - build-golang:
+          <<: *workflow-build-template
+      - build-docker:
+          requires:
+            - build-golang
+          <<: *workflow-build-template
+      # deploy workflow (develop)
+      - deploy-develop:
+          requires:
+            - build-docker
+          context: clover-develop
+          filters:
+            branches:
+              only: develop
+      # deploy workflow (production)
+      - approve-prod:
+          filters:
+            branches:
+              only: main
+          type: approval
+      - deploy-prod:
+          context:
+            - clover-develop
+            - cloverscan_prod
+          requires:
+            - approve-prod
+            - build-docker
+          filters:
+            branches:
+              only: main

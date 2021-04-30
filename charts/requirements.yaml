@@ -1,0 +1,5 @@
+dependencies:
+  - name: cloverscan-contract-registry
+    version: "0.0.1"
+    repository: "file://cloverscan-contract-registry"
+    condition: cloverscan-contract-registry.enabled

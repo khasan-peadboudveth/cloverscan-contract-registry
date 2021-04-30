@@ -1,0 +1,51 @@
+postgresql:
+    postgresqlPassword: ENC[AES256_GCM,data:U5HHfp0QMYTinauyI8g1mlFW5NuzZrOxcQkKAms7rnypUXg7Isdy6HxnLKswYaATWnbll42FS0me5IN15b1iXQ==,iv:KFMQdkL4r3+lUM9Dj1u5P/tp22fXghbDx9mXhXQOTcE=,tag:fSkZafMrcgwtuiPjc4OcTw==,type:str]
+mysql:
+    auth:
+        rootPassword: ENC[AES256_GCM,data:234/E/JaKFmXe3ximCo0FIhl2nyjz2rYk2bmUwrOmR4/CTHSUnLZPKUV+CNS6d98EufY3UNwP6Bu/eNPBR7gyQ==,iv:z7RIiH60z4OZlz4Szg8RI3cbaotni0qmU7yIysVlj9E=,tag:9K0H2VxcWNXgynmJeML0nQ==,type:str]
+redis:
+    password: ENC[AES256_GCM,data:mF2oVKrfD957UDf8/lInnR9d4jni1Nudb7n3w5rMUfxF9gRxUe5gkgfI3t2LJ4X9ka9eYzMzvRzIHlXnXXBI3A==,iv:i/HbSxJTC7A51sBrdE/Sl6n6AfYkbAMZVbSJFPqyEic=,tag:nVBDnzhCCTKgAiMyMW69YQ==,type:str]
+grafana:
+    admin:
+        password: ENC[AES256_GCM,data:iJwjJfxmjlKqyEV+L706boCV8kDoT90AH1kCsYgEo8l2weSBiuCwtndtRKjwPX1jmTLdLclwU28bNCzQzPMQ9A==,iv:YU/NbLUUiNdIcNzuu0yN86oJHZ0KorpySRoNqpOmGsc=,tag:r9/hxsh436lYGKZKh87OwQ==,type:str]
+mongodb-sharded:
+    mongodbRootPassword: ENC[AES256_GCM,data:+/8KcrS5rDQYiXS8D12gfqSWdeNRCqBplfLziqCsROsuUX++Ioof6S130k/XOTqU6kuI8nC1691dkY3AJFyK+g==,iv:Sc/NF0/lNY2a7ck8gMxx8aDTqWmg5oyagnFzm91ADdk=,tag:Hgm/B0KP9ES+OGA4SY0whQ==,type:str]
+    replicaSetKey: ENC[AES256_GCM,data:w3mEVcA5HMrQgIf0BEv0bEGm0Vk3k0MKIBP2jLvB4nJEaW7946ei4FtsKbuAmfEmqClYXKSW5nTujO3egKQwog==,iv:GNLBVeGWYGOM9SjwIfLu80uNqJuCsW6IaO5gtsLIkQY=,tag:lSlXhvUlYmMHXWi8IQxZUA==,type:str]
+cloverscan-transaction-indexer:
+    enabled: ENC[AES256_GCM,data:gtM5gQ==,iv:Pl4teIgjJ1dU2e7MaDT8f7L4rJeVmO6zJpSEz/39Bhw=,tag:k02ryubp5fYB6ozoJWj7xA==,type:bool]
+    configMap:
+        MONGODB_PASSWORD: ENC[AES256_GCM,data:Ttv0HbxbILWba/Z9y0gKTzkWL3dYyMB5YO0teG6AM2BaYKn7NwifiMejHV/hroFRL3ojVTrgFxwaW+FYy+Z/Tw==,iv:zMU9CnQlRzkwuQel6t6TJfM2Oa1FlYS3rejqfrvBu0I=,tag:HTyLZlNKMcXBF8EhgXO+WA==,type:str]
+        REDIS_PASSWORD: ENC[AES256_GCM,data:m10y7GTpJ5tk6xoBAoVvoQXLShFWO9M9TAsX8gbHSo4l5fETRtBD/8SIZVfuRc+9FX6Ib+yabLTgyfBgmQoh5g==,iv:JAUXtXTAZX+D+rYHtnndSVwLAB+2pip5+3DJqxITeZg=,tag:uunQMoJ0/JHaqoG12FOW1w==,type:str]
+cloverscan-extractor:
+    enabled: ENC[AES256_GCM,data:17ei3g==,iv:nBbTBGpbKARpwMecIxv5q9bgynul6/ZHAX7+CrjQRSw=,tag:Awe1Ge4PipBoHmkQe/xdKA==,type:bool]
+    configMap:
+        REDIS_PASSWORD: ENC[AES256_GCM,data:A5islaD8z3YQq01G1ztNy7bFmzy4L30e9JkvvXpfoqTGWS2DI5h9lZcf21nskvX2R1cXivXVk2Z1vJ2FzBbsTw==,iv:vGNasgBgYjEav988WLga/NuzOZ5f3AJ/BQVHXsRTqYM=,tag:cq3szdHOkaoQ4E/P3v1X+A==,type:str]
+        DATABASE_PASSWORD: ENC[AES256_GCM,data:yO4hqKSZvVqPNV48odpiHPNmaGoM1V850PCYZcdfDEOGd5jRyKqUgrp0S0WUIcDmGZ6QVaA4w4/58jKGBMmr6g==,iv:FI5BsEweBIJ+oo5PNJ2GHVQvSQMW35pD2SHxwbEF2go=,tag:ZJpjU9GLohrvNoB5Ak+qWQ==,type:str]
+sops:
+    kms: []
+    gcp_kms: []
+    azure_kv: []
+    hc_vault: []
+    lastmodified: '2021-03-19T16:36:43Z'
+    mac: ENC[AES256_GCM,data:ZFe9bJuNcOHi264jB3JjHrn3ZGxZxhgSoTgezHjeTO2PKSV3GTt4TtJ9od0kSCsWF1XjQvacKxJ3GhXWJrueK1hO8IReG8olCF6g0DMxICSBzAQGdGbxf0br3DBSzy/ZpDcK9O1U1EQ+hzJzz4n9Uok0MayPWKKx4heOgQgqU4I=,iv:ORIW5RZjQ+b9xk5CTmoOg+vHim7l7il6kzy98Zz9DN0=,tag:GDNqxqBxPHRTWjW29t+cdg==,type:str]
+    pgp:
+    -   created_at: '2021-03-19T16:36:41Z'
+        enc: |
+            -----BEGIN PGP MESSAGE-----
+
+            hQGMAz5Laiu923sBAQv+NbNJmwotSrOj7K99hFk6ib2bSPI1bPGbMYxAGR1UAL3M
+            kSMInVUb2sySJdOx23oUbFvwc6sC3+srJJfHhvfD9vPT2FYn5v9VZINwgSoP1MzQ
+            sicPYgdyY94NykT1rBKCKYAfAK24KpAdg+9ukp58k4OxmQoEh9zWE0paQgcRKJY0
+            jMivZAwxXKMksbdYgkCEbua1KTeUJnPBzu042+GrcAD/AyVENaPYZ9tr7FPBW+wg
+            Ies83cMx68Pq/4pVCvnlYOxrIYonczuGMo8XEon+GU8ROTdcVtDkmFEso9RhnYrs
+            t91RCYHZw/5b0W7KUFKrlClR+eNKmuF7Xgq53QhgArKpCK/zN8la6Sj8ZE/CECGv
+            n5/tHJwBOqT/5TDE0WsKgECS3PeSe/HcjdBptk6fzGQaGQGfe7GveuBvBJ+vaOc4
+            Btc2S4hGnTuqUxfoncvMiuvYHuay4LaGxwrheqpHqZrsIUw+1X61wcmSXXWSCjnC
+            aAVOgC9bR+29W63iuiUZ0l4BDzrJ/2O0iPMUb7pjbzESKKZEgQjshuu1u134b+85
+            dbTE6rwFRez8PGWIhj1JUwHpLJRWGdxC+P7fc2YzPn6a/ZOUryFNjowCl8LZ236U
+            RY5WvaBamLJBZhPLu9r5
+            =iryw
+            -----END PGP MESSAGE-----
+        fp: 0C06E58158278D8CB690E280CC39454CDEEB4A6D
+    unencrypted_suffix: _unencrypted
+    version: 3.6.1
