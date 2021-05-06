@@ -44,3 +44,21 @@ func ApplyDatabaseMigrations(config *config.Config) {
 	_, _ = m.Close()
 	log.Infof("all database migrations has been successfully applied")
 }
+
+func EnsureDatabase(config *config.Config) {
+	db := pg.Connect(&pg.Options{
+		ApplicationName: "sidecar-manager",
+		Addr:            config.DatabaseAddress,
+		User:            config.DatabaseUser,
+		Password:        config.DatabasePassword,
+	})
+	r, err := db.Exec(fmt.Sprintf("SELECT * FROM pg_database WHERE datname = '%s'", config.DatabaseDb))
+	if err != nil {
+		log.Fatalf("unable get existing databases: %s", err)
+	} else if r.RowsAffected() == 0 {
+		_, err = db.Exec(fmt.Sprintf("create database %s", config.DatabaseDb))
+		if err != nil {
+			log.Fatalf("unable to create database: %s", err)
+		}
+	}
+}

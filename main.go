@@ -6,11 +6,11 @@ import (
 	"github.com/clover-network/cloverscan-contract-registry/src/config"
 	"github.com/clover-network/cloverscan-contract-registry/src/entity"
 	"github.com/clover-network/cloverscan-contract-registry/src/kafka"
+	"github.com/clover-network/cloverscan-contract-registry/src/nodes"
 	"github.com/clover-network/cloverscan-contract-registry/src/server"
 	"github.com/clover-network/cloverscan-contract-registry/src/service"
-	"github.com/clover-network/cloverscan-contract-registry/src/service/caller"
-	"github.com/clover-network/cloverscan-contract-registry/src/service/reorg"
 	"github.com/go-redis/redis/v8"
+	"github.com/olebedev/emitter"
 	log "github.com/sirupsen/logrus"
 	"go.uber.org/dig"
 )
@@ -20,7 +20,16 @@ func main() {
 
 	/* initialize config, emitter and postgresql connection */
 	must(container.Provide(config.NewConfig))
+	must(container.Provide(func() *emitter.Emitter {
+		return emitter.New(10)
+	}))
 	must(container.Provide(kafka.NewProducer))
+	must(container.Provide(kafka.NewConsumer))
+
+	must(container.Invoke(entity.EnsureDatabase))
+	must(container.Provide(entity.NewConnection))
+	must(container.Provide(service.NewService))
+	must(container.Provide(nodes.NewService))
 	must(container.Invoke(entity.ApplyDatabaseMigrations))
 	must(container.Invoke(common.PrometheusExporter))
 	must(container.Provide(func(config *config.Config) *redis.Client {
@@ -32,20 +41,23 @@ func main() {
 	}))
 
 	/* initialize internal services */
-	must(container.Provide(entity.NewConnection))
+
 	must(container.Provide(server.NewGrpcServer))
-	must(container.Provide(service.NewService))
-	must(container.Provide(reorg.NewService))
-	must(container.Provide(caller.NewService))
+
 	must(container.Invoke(func(
 		cfg *config.Config,
 		kafkaProducer *kafka.Producer,
-		mainService *service.Service,
+		kafkaConsumer *kafka.Consumer,
 		server *server.GrpcServer,
+		service *service.Service,
+		nodesService *nodes.Service,
 	) {
+		nodesService.Start()
+		service.Start()
 		server.Start()
-		mainService.Start()
+
 		/* wait for application termination */
+		kafkaConsumer.Start(service.HandleBlockChanged)
 		common.WaitForSignal()
 	}))
 }

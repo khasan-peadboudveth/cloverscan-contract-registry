@@ -4,193 +4,164 @@ import (
 	"fmt"
 	"github.com/clover-network/cloverscan-contract-registry/src/config"
 	"github.com/clover-network/cloverscan-contract-registry/src/entity"
-	"github.com/clover-network/cloverscan-contract-registry/src/kafka"
-	"github.com/clover-network/cloverscan-contract-registry/src/service/caller"
-	"github.com/clover-network/cloverscan-contract-registry/src/service/reorg"
+	"github.com/clover-network/cloverscan-contract-registry/src/nodes"
 	proto "github.com/clover-network/cloverscan-proto-contract"
 	"github.com/go-pg/pg/v10"
-	"github.com/go-redis/redis/v8"
 	"github.com/pkg/errors"
-	"github.com/prometheus/client_golang/prometheus"
 	log "github.com/sirupsen/logrus"
 	"sync"
 	"time"
 )
 
-var (
-	latestProcessedMetric = prometheus.NewGaugeVec(prometheus.GaugeOpts{Name: "latest_processed_block"}, []string{"id", "blockchain"})
-	latestMetric          = prometheus.NewGaugeVec(prometheus.GaugeOpts{Name: "latest_block"}, []string{"id", "blockchain"})
-)
-
-func init() {
-	prometheus.MustRegister(
-		latestProcessedMetric,
-		latestMetric,
-	)
-}
-
 type Service struct {
-	kafkaProducer *kafka.Producer
 	database      *pg.DB
+	contractCache map[string]*entity.Contract
+	mutex         sync.Mutex
 	config        *config.Config
-	redis         *redis.Client
-	reorgService  *reorg.Service
-	callerService *caller.Service
+	nodesService  *nodes.Service
 }
 
-func NewService(config *config.Config, kafkaProducer *kafka.Producer, database *pg.DB, redis *redis.Client, reorgService *reorg.Service, callerService *caller.Service) *Service {
+func NewService(database *pg.DB, config *config.Config, nodesService *nodes.Service) *Service {
 	return &Service{
-		config:        config,
-		kafkaProducer: kafkaProducer,
 		database:      database,
-		redis:         redis,
-		reorgService:  reorgService,
-		callerService: callerService,
+		contractCache: make(map[string]*entity.Contract),
+		config:        config,
+		nodesService:  nodesService,
 	}
 }
 
-func (s *Service) GetAllActiveExtractorConfigs() ([]*entity.ExtractorConfig, error) {
-	var result []*entity.ExtractorConfig
-	if err := s.database.Model(&result).Where("enabled = true AND parallel >= 1").Select(); err != nil {
-		return []*entity.ExtractorConfig{}, errors.Wrapf(err, "failed to read extractor configurations")
+func metrics(start int64, changes []*proto.BlockChanged) {
+	latest := make(map[string]uint64)
+	for _, change := range changes {
+		if change.BlockHeight > latest[change.BlockchainName] {
+			latest[change.BlockchainName] = change.BlockHeight
+		}
 	}
-	return result, nil
+	delta := float64(time.Now().UnixNano()-start) / 1e9
+	tps := int64(float64(len(changes)) / delta)
+	log.Infof("batch processed size=%d time=%dms tps=%d latest=%v", len(changes), int64(delta*1000), tps, latest)
 }
 
 func (s *Service) Start() {
-	extractors, err := s.GetAllActiveExtractorConfigs()
-	log.Infof("going to start %d extractors", len(extractors))
-	if err != nil {
-		log.Fatalf("failed to obtain active extractors: %s", err)
-	}
-	if len(extractors) == 0 {
-		log.Fatalf("no active extractors were found, shutting down...")
-	}
-	for _, extractor := range extractors {
-		go s.StartExtractor(extractor)
-	}
+	go s.scanContracts()
 }
 
-func (s *Service) UpdateLatestProcessedBlock(config *entity.ExtractorConfig, newValue int64) error {
-	config.LatestProcessedBlock = newValue
-	_, err := s.database.Model(config).WherePK().Column("latest_processed_block").Update()
-	return err
-
-}
-
-func (s *Service) StartExtractor(extractorConfig *entity.ExtractorConfig) {
-	blockchainName := extractorConfig.Name
-	latestProcessedBlock := extractorConfig.LatestProcessedBlock
-	oneByOne := 0
-	log.Infof("[%s] starting extractor: node: %s, latest processed block: %d...", blockchainName, extractorConfig.Nodes[0], latestProcessedBlock)
-
-	for _, node := range extractorConfig.Nodes {
-		err := s.callerService.RegisterNode(blockchainName, node)
-		if err != nil {
-			log.Errorf("failed to register %s %s: %s", blockchainName, node, err)
-		}
-	}
-	if !s.config.GenesisStart && latestProcessedBlock != -1 {
-		// if we allow extractor to start not from genesis block, than we should mark some block start of canonical chain
-		protoBlock, err := s.callerService.ProcessBlock(blockchainName, latestProcessedBlock)
-		if err != nil {
-			log.Errorf("[%s] failed to read latest block #%d to mark it as block from canonical chain: %s", blockchainName, latestProcessedBlock, err)
-			return
-		}
-		err = s.reorgService.Add(blockchainName, protoBlock)
-		if err != nil {
-			log.Errorf("[%s] failed to mark block #%d to mark it as block from canonical chain: %s", blockchainName, latestProcessedBlock, err)
-			return
-		}
-		log.Infof("[%s] marked block #%d (0x%s) as origin of canonical chain", blockchainName, latestProcessedBlock, protoBlock.BlockHash[2:10])
-	}
+func (s *Service) scanContracts() {
 	for {
-		latestBlock, err := s.callerService.LatestBlock(blockchainName)
+		contact, err := s.nextContract()
 		if err != nil {
-			log.Errorf("[%s] failed to read latest block while on the block %d: %s", blockchainName, latestProcessedBlock, err)
-			time.Sleep(time.Second * 5)
+			if err != pg.ErrNoRows {
+				log.Errorf("failed to get next contract from database: %s", err)
+				time.Sleep(1 * time.Minute)
+			}
+			time.Sleep(5 * time.Second)
 			continue
 		}
-		latestMetric.WithLabelValues(fmt.Sprintf("%d", extractorConfig.ID), blockchainName).Set(float64(latestBlock))
-		if latestProcessedBlock >= latestBlock {
-			time.Sleep(time.Second * 5)
+		log.Infof("new unprocessed contact was found %s %s", contact.BlockchainName, contact.Address)
+		err = s.scanContract(contact)
+		if err != nil {
+			log.Errorf("failed to scan contract: %s", err)
+			time.Sleep(1 * time.Minute)
 			continue
 		}
-		for {
-			if latestProcessedBlock >= latestBlock {
-				break
-			}
-			parallelProcessCount := extractorConfig.Parallel
-			if int64(parallelProcessCount) > latestBlock-latestProcessedBlock {
-				parallelProcessCount = int(latestBlock - latestProcessedBlock)
-			}
-			if oneByOne > 0 {
-				parallelProcessCount = 1
-			}
-			processFrom := latestProcessedBlock + 1
-			processTo := latestProcessedBlock + int64(parallelProcessCount)
-			var wg sync.WaitGroup
-			wg.Add(parallelProcessCount)
-			errorOccurred := false
-			blocks := make([]*proto.BlockChanged, 0)
-			for i := 0; i < parallelProcessCount; i++ {
-				block := latestProcessedBlock + int64(i) + 1
-				go func() {
-					defer wg.Done()
-					protoBlock, processErr := s.callerService.ProcessBlock(blockchainName, block)
-					if processErr != nil {
-						log.Errorf("[%s] failed to process block %d: %s", blockchainName, block, processErr)
-						errorOccurred = true
-						return
-					}
-					blocks = append(blocks, protoBlock)
-					reorgAddErr := s.reorgService.Add(blockchainName, protoBlock)
-					if reorgAddErr != nil {
-						log.Errorf("[%s] failed to add block %d to reorg service: %s", blockchainName, block, processErr)
-						errorOccurred = true
-						return
-					}
-				}()
-			}
-			wg.Wait()
-			if errorOccurred {
-				oneByOne = parallelProcessCount
-				break
-			}
-
-			reorgOccurred, err := s.reorgService.DetectReorg(blockchainName, processFrom, processTo)
-			if err != nil {
-				log.Errorf("[%s] failed to check for reorgs for blocks %d-%d: %s", blockchainName, processFrom, processTo, err)
-				break
-			}
-			if reorgOccurred {
-				latestProcessedBlock = latestProcessedBlock - int64(parallelProcessCount)
-				if latestProcessedBlock < -1 {
-					latestProcessedBlock = -1
-				}
-				break
-			}
-
-			err = s.kafkaProducer.WriteBlock(blocks...)
-			if err != nil {
-				log.Errorf("[%s] failed to write blocks to kafka: %s", blockchainName, err)
-				break
-			}
-
-			latestProcessedBlock = processTo
-			err = s.UpdateLatestProcessedBlock(extractorConfig, latestProcessedBlock)
-			if err != nil {
-				log.Errorf("[%s] failed to update latest processed block %d: %s", blockchainName, latestProcessedBlock, err)
-				break
-			}
-			latestProcessedMetric.WithLabelValues(fmt.Sprintf("%d", extractorConfig.ID), blockchainName).Set(float64(latestProcessedBlock))
-
-			if oneByOne > 0 {
-				oneByOne -= 1
-			}
-
-			log.Infof("[%s] processed blocks (%d-%d)/%d", blockchainName, processFrom, processTo, latestBlock)
-		}
-		time.Sleep(time.Second * 5)
 	}
+}
+
+func (s *Service) scanContract(contract *entity.Contract) error {
+	name, err := s.nodesService.GetName(contract.BlockchainName, contract.Address)
+	if err != nil {
+		return err
+	}
+	symbol, err := s.nodesService.GetSymbol(contract.BlockchainName, contract.Address)
+	if err != nil {
+		return err
+	}
+	decimals, err := s.nodesService.GetDecimals(contract.BlockchainName, contract.Address)
+	if err != nil {
+		return err
+	}
+	if decimals == 0 {
+		decimals = 18
+	}
+	contract.Name = name
+	contract.Symbol = symbol
+	contract.Decimals = int(decimals)
+	contract.Status = proto.ContractStatus_SCANNED.String()
+	_, err = s.database.Model(contract).Update()
+	if err != nil {
+		return err
+	}
+	s.mutex.Lock()
+	s.contractCache[contractId(contract.BlockchainName, contract.Address)] = contract
+	s.mutex.Unlock()
+	log.Infof("smart contract %s %s was scanned: %s %s %d", contract.BlockchainName, contract.Address, name, symbol, decimals)
+	return nil
+}
+
+func (s *Service) nextContract() (*entity.Contract, error) {
+	contract := &entity.Contract{}
+	err := s.database.Model(contract).Where("status = ?", proto.ContractStatus_FOUND.String()).Limit(1).Select()
+	if err != nil {
+		return nil, err
+	}
+	return contract, nil
+}
+
+func (s *Service) HandleBlockChanged(changes []*proto.BlockChanged) error {
+	start := time.Now().UnixNano()
+	for _, change := range changes {
+		switch block := change.Block.(type) {
+		case *proto.BlockChanged_EthBlock:
+			ethBlock := block.EthBlock
+			for _, ethTx := range ethBlock.Txs {
+				if ethTx.IsContractCall {
+					if err := s.RegisterContract(change.BlockchainName, ethTx.ToAddress); err != nil {
+						return err
+					}
+				}
+			}
+		default:
+			return errors.Errorf("proto block type is unknown %s %s", change.BlockchainName, change.BlockHash)
+		}
+	}
+	metrics(start, changes)
+	return nil
+}
+
+func contractId(blockchainName, address string) string {
+	return fmt.Sprintf("%s:%s", blockchainName, address)
+}
+
+func (s *Service) RegisterContract(blockchainName, address string) error {
+	s.mutex.Lock()
+	defer s.mutex.Unlock()
+	_, ok := s.contractCache[contractId(blockchainName, address)]
+	if ok {
+		return nil
+	}
+	model := &entity.Contract{BlockchainName: blockchainName, Address: address, Status: proto.ContractStatus_FOUND.String()}
+	inserted, err := s.database.Model(model).WherePK().SelectOrInsert()
+	if inserted {
+		s.contractCache[contractId(blockchainName, address)] = model
+	}
+	return err
+}
+
+func (s *Service) Contract(blockchainName, address string) (*entity.Contract, error) {
+	contract, ok := s.contractCache[contractId(blockchainName, address)]
+	if ok {
+		return contract, nil
+	}
+	model := &entity.Contract{BlockchainName: blockchainName, Address: address}
+	err := s.database.Model(model).WherePK().Select()
+	if err != nil {
+		if err == pg.ErrNoRows {
+			return &entity.Contract{}, nil
+		}
+		return nil, err
+	}
+	s.mutex.Lock()
+	s.contractCache[contractId(contract.BlockchainName, contract.Address)] = contract
+	s.mutex.Unlock()
+	return model, nil
 }

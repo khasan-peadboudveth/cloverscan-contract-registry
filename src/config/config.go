@@ -28,10 +28,10 @@ func NewConfig() *Config {
 	flag.StringVar(&config.DatabaseAddress, "database-address", "localhost:5432", "")
 	flag.StringVar(&config.DatabaseUser, "database-user", "postgres", "")
 	flag.StringVar(&config.DatabasePassword, "database-password", "12345", "")
-	flag.StringVar(&config.DatabaseDb, "database-db", "cloverscan-contract-registry", "")
+	flag.StringVar(&config.DatabaseDb, "database-db", "cloverscan_contract_registry", "")
 	/* Apache Kafka */
 	flag.StringVar(&config.KafkaAddress, "kafka-address", "localhost:9092", "")
-	flag.StringVar(&config.KafkaGroup, "kafka-group", "cloverscan-contract-registry", "")
+	flag.StringVar(&config.KafkaGroup, "kafka-group", "cloverscan_contract_registry", "")
 	flag.StringVar(&config.PrometheusAddress, "prometheus-address", "localhost:8075", "host and port for prometheus")
 	/* redis */
 	flag.StringVar(&config.RedisAddress, "redis-address", "localhost:6379", "")

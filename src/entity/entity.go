@@ -3,23 +3,22 @@
 package entity
 
 var Columns = struct {
-	ExtractorConfig struct {
-		ID, Name, ChainType, LatestProcessedBlock, Enabled, Parallel, Nodes string
+	Contract struct {
+		BlockchainName, Address, Name, Decimals, Symbol, Status string
 	}
 	SchemaMigration struct {
 		ID, Dirty string
 	}
 }{
-	ExtractorConfig: struct {
-		ID, Name, ChainType, LatestProcessedBlock, Enabled, Parallel, Nodes string
+	Contract: struct {
+		BlockchainName, Address, Name, Decimals, Symbol, Status string
 	}{
-		ID:                   "id",
-		Name:                 "name",
-		ChainType:            "chain_type",
-		LatestProcessedBlock: "latest_processed_block",
-		Enabled:              "enabled",
-		Parallel:             "parallel",
-		Nodes:                "nodes",
+		BlockchainName: "blockchain_name",
+		Address:        "address",
+		Name:           "name",
+		Decimals:       "decimals",
+		Symbol:         "symbol",
+		Status:         "status",
 	},
 	SchemaMigration: struct {
 		ID, Dirty string
@@ -30,17 +29,17 @@ var Columns = struct {
 }
 
 var Tables = struct {
-	ExtractorConfig struct {
+	Contract struct {
 		Name, Alias string
 	}
 	SchemaMigration struct {
 		Name, Alias string
 	}
 }{
-	ExtractorConfig: struct {
+	Contract: struct {
 		Name, Alias string
 	}{
-		Name:  "extractor_config",
+		Name:  "contract",
 		Alias: "t",
 	},
 	SchemaMigration: struct {
@@ -51,16 +50,15 @@ var Tables = struct {
 	},
 }
 
-type ExtractorConfig struct {
-	tableName struct{} `pg:"extractor_config,alias:t,,discard_unknown_columns"`
+type Contract struct {
+	tableName struct{} `pg:"contract,alias:t,,discard_unknown_columns"`
 
-	ID                   int      `pg:"id,pk"`
-	Name                 string   `pg:"name,use_zero"`
-	ChainType            string   `pg:"chain_type,use_zero"`
-	LatestProcessedBlock int64    `pg:"latest_processed_block,use_zero"`
-	Enabled              bool     `pg:"enabled,use_zero"`
-	Parallel             int      `pg:"parallel,use_zero"`
-	Nodes                []string `pg:"nodes,array,use_zero"`
+	BlockchainName string `pg:"blockchain_name,pk"`
+	Address        string `pg:"address,pk"`
+	Name           string `pg:"name,use_zero"`
+	Decimals       int    `pg:"decimals,use_zero"`
+	Symbol         string `pg:"symbol,use_zero"`
+	Status         string `pg:"status,use_zero"`
 }
 
 type SchemaMigration struct {
